@@ -1,0 +1,449 @@
+Driver.java
+
+package ParkingLot;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+
+public class Driver {
+    public static void main(String[] args) throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(System.in));
+
+        String[] str = br.readLine().split(" ");
+        ParkingLot parkingLot = new ParkingLot(str[1], str[2], str[3]);
+        parkingLot.initializeParkingLot();
+
+        outerloop:
+        while(true){
+            String[] cmd = br.readLine().split(" ");
+            switch (cmd[0]){
+                case "create_parking_lot":
+                    break;
+                case "park_vehicle":
+                    Vehicle vehicle = new Vehicle(cmd[1], cmd[2], cmd[3]);
+                    parkingLot.parkVehicle(vehicle);
+                    break;
+                case "unpark_vehicle":
+                    parkingLot.vacateVehicle(cmd[1]);
+                    break;
+                case "display":
+                    parkingLot.displayBoard(cmd[1], cmd[2]);
+                    break;
+                case "exit":
+                    break outerloop;
+            }
+        }
+    }
+}
+
+ParkingStrategy.java
+
+package ParkingLot.ParkingStrategy;
+
+import ParkingLot.ParkingLot;
+import ParkingLot.ParkingSpot;
+import ParkingLot.Vehicle;
+
+public interface ParkingStrategy {
+
+    ParkingSpot getAvailableSpot(ParkingLot parkingLot, Vehicle vehicle);
+}
+NearestAvailableSlotStrategy.java
+
+package ParkingLot.ParkingStrategy;
+
+import ParkingLot.ParkingLot;
+import ParkingLot.ParkingSpot;
+import ParkingLot.ParkingFloor;
+import ParkingLot.Vehicle;
+
+import java.util.Map;
+
+public class NearestAvailableSlotStrategy implements ParkingStrategy {
+
+    @Override
+    public ParkingSpot getAvailableSpot(ParkingLot parkingLot, Vehicle vehicle) {
+        for(Map.Entry<Integer, ParkingFloor> entry: parkingLot.getFloorMap().entrySet()){
+            ParkingFloor floor = entry.getValue();
+            if(floor.canPark(vehicle)){
+                return floor.getParkingSpot(vehicle);
+            }
+        }
+        return null;
+    }
+}
+ParkingLot.java
+
+package ParkingLot;
+
+import ParkingLot.ParkingStrategy.NearestAvailableSlotStrategy;
+import ParkingLot.ParkingStrategy.ParkingStrategy;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class ParkingLot {
+
+    private final String parkingLotId;
+    private final Integer noOfFloors;
+    private final Integer noOfSpotsPerFloor;
+
+    private Map<Integer, ParkingFloor> floorMap;
+    private Map<String, ParkingTicket> ticketMap;
+
+    private final ParkingStrategy parkingStrategy;
+
+    public static final Integer RESERVED_SLOT_FOR_TRUCK = 1;
+    public static final List<Integer> RESERVED_SLOT_FOR_BIKE = List.of(2, 3);
+
+    public ParkingLot(String parkingLotId, String noOfFloors, String noOfSpotsPerFloor){
+        this.parkingLotId = parkingLotId;
+        this.noOfFloors = Integer.parseInt(noOfFloors);
+        this.noOfSpotsPerFloor = Integer.parseInt(noOfSpotsPerFloor);
+        floorMap = new HashMap<>();
+        ticketMap = new HashMap<>();
+        parkingStrategy = new NearestAvailableSlotStrategy();
+    }
+
+    public String getParkingLotId() {
+        return parkingLotId;
+    }
+
+    public Map<String, ParkingTicket> getTicketMap() {
+        return ticketMap;
+    }
+
+    public Map<Integer, ParkingFloor> getFloorMap() {
+        return floorMap;
+    }
+
+    public void initializeParkingLot(){
+        for(int floorNum = 1; floorNum <= noOfFloors; floorNum++){
+            ParkingFloor floor = new ParkingFloor(floorNum);
+            for(int spotNum = 1; spotNum <= noOfSpotsPerFloor; spotNum++){
+                ParkingSpot parkingSpot = new ParkingSpot(floorNum, spotNum);
+                if(spotNum == RESERVED_SLOT_FOR_TRUCK) {
+                    parkingSpot.setType(ParkingSpotType.TRUCK);
+                }
+                else if(RESERVED_SLOT_FOR_BIKE.contains(spotNum)) {
+                    parkingSpot.setType(ParkingSpotType.BIKE);
+                }
+                else {
+                    parkingSpot.setType(ParkingSpotType.CAR);
+                }
+                floor.addParkingSpot(parkingSpot);
+            }
+            floorMap.put(floorNum, floor);
+        }
+        System.out.println("Created parking lot with "+ noOfFloors +" floors and "+ noOfSpotsPerFloor + " slots per floor");
+    }
+
+    public void addFloor(ParkingFloor floor){
+        floorMap.put(floor.getFloorId(), floor);
+    }
+
+    public void addSpot(String floorId, ParkingSpot parkingSpot){
+        ParkingFloor floor = floorMap.get(floorId);
+        floor.addParkingSpot(parkingSpot);
+    }
+
+    public ParkingTicket generateParkingTicket(String parkingLotId, Integer floorId, Integer spotId){
+        String id = parkingLotId + "_" + floorId + "_" + spotId;
+        ParkingTicket ticket = new ParkingTicket(id, floorId, spotId);
+        return ticket;
+    }
+
+    public void parkVehicle(Vehicle vehicle){
+        ParkingSpot parkingSpot = parkingStrategy.getAvailableSpot(this, vehicle);
+        if(parkingSpot == null){
+            System.out.println("Parking Lot full");
+            return;
+        }
+        ParkingTicket ticket = this.generateParkingTicket(this.getParkingLotId(), parkingSpot.getFloorId(), parkingSpot.getSpotId());
+        parkingSpot.assignVehicle(vehicle);
+        vehicle.assignTicket(ticket);
+        ParkingFloor floor = floorMap.get(parkingSpot.getFloorId());
+        floor.moveSpotFromAvailableMapToOccupiedMap(parkingSpot);
+        ticketMap.put(ticket.getTicketId(), ticket);
+        return;
+    }
+
+    public void vacateVehicle(String ticketId){
+        if(!ticketMap.containsKey(ticketId)) {
+            System.out.println("Invalid Ticket");
+            return;
+        }
+        ParkingTicket parkingTicket = ticketMap.get(ticketId);
+        ParkingFloor parkingFloor = floorMap.get(parkingTicket.getFloorId());
+        ParkingSpot parkingSpot = parkingFloor.getParkingSpot(parkingTicket.getSpotId());
+        Vehicle vehicle = parkingSpot.getVehicle();
+        parkingSpot.vacateVehicle();
+        ParkingFloor floor = floorMap.get(parkingSpot.getFloorId());
+        floor.moveSpotFromOccupiedMapToAvailableMap(parkingSpot);
+        System.out.println("Unparked vehicle with Registration Number: "+
+                vehicle.getRegistrationNumber() +" and Color: "+ vehicle.getColor());
+        //this.scanAndPay()
+        ticketMap.remove(ticketId);
+    }
+
+    public void displayBoard(String displayType, String vehicleType){
+        for(ParkingFloor parkingFloor: floorMap.values()){
+            switch (vehicleType){
+                case "CAR":
+                    parkingFloor.displayFloorBoard(displayType, VehicleType.CAR);
+                    break;
+                case "BIKE":
+                    parkingFloor.displayFloorBoard(displayType, VehicleType.BIKE);
+                    break;
+                case "TRUCK":
+                    parkingFloor.displayFloorBoard(displayType, VehicleType.TRUCK);
+                    break;
+            }
+        }
+    }
+}
+
+ParkingFloor.java
+
+package ParkingLot;
+
+import java.util.HashMap;
+import java.util.Map;
+
+public class ParkingFloor {
+
+    private Integer floorId;
+    private Map<ParkingSpotType, Map<Integer, ParkingSpot>> availableSpots;
+    private Map<ParkingSpotType, Map<Integer, ParkingSpot>> occupiedSpots;
+    private Map<Integer, ParkingSpot> spotMap;
+
+    public ParkingFloor(Integer floorId){
+        this.floorId = floorId;
+        spotMap = new HashMap<>();
+        availableSpots = new HashMap<>();
+        availableSpots.put(ParkingSpotType.BIKE, new HashMap<>());
+        availableSpots.put(ParkingSpotType.CAR, new HashMap<>());
+        availableSpots.put(ParkingSpotType.TRUCK, new HashMap<>());
+
+        occupiedSpots = new HashMap<>();
+        occupiedSpots.put(ParkingSpotType.BIKE, new HashMap<>());
+        occupiedSpots.put(ParkingSpotType.CAR, new HashMap<>());
+        occupiedSpots.put(ParkingSpotType.TRUCK, new HashMap<>());
+    }
+
+    public Integer getFloorId() {
+        return floorId;
+    }
+
+    public void addParkingSpot(ParkingSpot parkingSpot){
+        Map<Integer, ParkingSpot> map = availableSpots.get(parkingSpot.getType());
+        map.put(parkingSpot.getSpotId(), parkingSpot);
+        availableSpots.put(parkingSpot.getType(), map);
+        spotMap.put(parkingSpot.getSpotId(), parkingSpot);
+    }
+
+    public ParkingSpot getParkingSpot(Integer parkingSpotId){
+        return spotMap.get(parkingSpotId);
+    }
+
+    public ParkingSpotType getParkingSpotTypeForVehicle(VehicleType vehicleType){
+        switch (vehicleType){
+            case BIKE:
+                return ParkingSpotType.BIKE;
+            case TRUCK:
+                return ParkingSpotType.TRUCK;
+            default:
+                return ParkingSpotType.CAR;
+        }
+    }
+
+    public boolean canPark(Vehicle vehicle){
+        ParkingSpotType parkingSpotType = getParkingSpotTypeForVehicle(vehicle.getType());
+        return availableSpots.get(parkingSpotType).size() > 0;
+    }
+
+    public ParkingSpot getParkingSpot(Vehicle vehicle){
+        ParkingSpotType parkingSpotType = getParkingSpotTypeForVehicle(vehicle.getType());
+        for(Map.Entry<Integer, ParkingSpot> entry: availableSpots.get(parkingSpotType).entrySet()){
+            return entry.getValue();
+        }
+        return null;
+    }
+
+    public void moveSpotFromAvailableMapToOccupiedMap(ParkingSpot parkingSpot){
+        availableSpots.get(parkingSpot.getType()).remove(parkingSpot.getSpotId());
+        occupiedSpots.get(parkingSpot.getType()).put(parkingSpot.getSpotId(), parkingSpot);
+    }
+
+    public void moveSpotFromOccupiedMapToAvailableMap(ParkingSpot parkingSpot){
+        occupiedSpots.get(parkingSpot.getType()).remove(parkingSpot.getSpotId());
+        availableSpots.get(parkingSpot.getType()).put(parkingSpot.getSpotId(), parkingSpot);
+    }
+
+    public void displayFloorBoard(String displayType, VehicleType vehicleType){
+        switch (displayType){
+            case "free_count":
+                int count = availableSpots.get(getParkingSpotTypeForVehicle(vehicleType)).size();
+                System.out.println("No. of free slots for " + vehicleType.toString() + " on Floor "+ floorId +": "+ count);
+                break;
+            case "free_slots":
+                System.out.print("Free slots for "+ vehicleType.toString() + " on Floor "+ floorId +": ");
+                for(Map.Entry<Integer, ParkingSpot> entry:
+                        availableSpots.get(getParkingSpotTypeForVehicle(vehicleType)).entrySet()){
+                    System.out.print(entry.getKey()+",");
+                }
+                System.out.println();
+                break;
+            case "occupied_slots":
+                System.out.print("Occupied slots for "+ vehicleType.toString() + " on Floor "+ floorId +": ");
+                for(Map.Entry<Integer, ParkingSpot> entry:
+                        occupiedSpots.get(getParkingSpotTypeForVehicle(vehicleType)).entrySet()){
+                    System.out.print(entry.getKey()+",");
+                }
+                System.out.println();
+                break;
+        }
+    }
+}
+ParkingSpot.java
+
+package ParkingLot;
+
+public class ParkingSpot {
+
+    private Integer spotId;
+    private Integer floorId;
+    private ParkingSpotType type;
+    private Vehicle vehicle;
+    private Boolean isSpotFree;
+
+    ParkingSpot(Integer floorId, Integer spotId){
+        this.floorId = floorId;
+        this.spotId = spotId;
+        isSpotFree = true;
+    }
+
+    public Vehicle getVehicle() {
+        return vehicle;
+    }
+
+    public void setType(ParkingSpotType type) {
+        this.type = type;
+    }
+
+    public Integer getFloorId() {
+        return floorId;
+    }
+
+    public ParkingSpotType getType() {
+        return type;
+    }
+
+    public Integer getSpotId() {
+        return spotId;
+    }
+
+    public Boolean getIsSpotFree() {
+        return isSpotFree;
+    }
+
+    public void assignVehicle(Vehicle vehicle){
+        this.vehicle = vehicle;
+        isSpotFree = false;
+    }
+
+    public void vacateVehicle(){
+        this.vehicle = null;
+        isSpotFree = true;
+    }
+}
+ParkingSpotType.java
+
+package ParkingLot;
+
+public enum ParkingSpotType {
+    CAR, BIKE, TRUCK
+}
+Vehicle.java
+
+package ParkingLot;
+
+public class Vehicle {
+
+
+    private String registrationNumber;
+    private VehicleType type;
+    private String color;
+    private ParkingTicket ticket;
+
+    public Vehicle(String type, String registrationNumber, String color){
+        switch (type){
+            case "CAR":
+                this.type = VehicleType.CAR;
+                break;
+            case "BIKE":
+                this.type = VehicleType.BIKE;
+                break;
+            case "TRUCK":
+                this.type = VehicleType.TRUCK;
+                break;
+        }
+        this.color = color;
+        this.registrationNumber = registrationNumber;
+
+    }
+
+    public String getColor() {
+        return color;
+    }
+
+    public void assignTicket(ParkingTicket ticket){
+        this.ticket = ticket;
+        System.out.println("Parked vehicle. Ticket ID: " + ticket.getTicketId());
+    }
+
+    public String getRegistrationNumber() {
+        return registrationNumber;
+    }
+
+    public VehicleType getType() {
+        return type;
+    }
+}
+VehicleType.java
+
+package ParkingLot;
+
+public enum VehicleType {
+    CAR, BIKE, TRUCK
+}
+ParkingTicket.java
+
+package ParkingLot;
+
+public class ParkingTicket {
+
+    private String ticketId;
+    private Integer floorId;
+    private Integer spotId;
+
+    public ParkingTicket(String ticketId, Integer floorId, Integer spotId){
+        this.ticketId = ticketId;
+        this.floorId = floorId;
+        this.spotId = spotId;
+    }
+
+    public String getTicketId() {
+        return ticketId;
+    }
+
+    public Integer getFloorId() {
+        return floorId;
+    }
+
+    public Integer getSpotId() {
+        return spotId;
+    }
+}
